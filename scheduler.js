@@ -5,7 +5,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const DB_PATH     = path.join(__dirname, 'subscribers.json');
+const DB_PATH = path.join('/data', 'subscribers.json');
 const PAYHIP_URL  = 'https://payhip.com/b/DzR2a';
 const SITE_URL    = 'https://hiddenlawsofmoney.com';
 const CART_CLOSE  = 'Sunday June 22 at midnight';
