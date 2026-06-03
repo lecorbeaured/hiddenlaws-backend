@@ -6,7 +6,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const DB_PATH = path.join('/data', 'subscribers.json');
-const PAYHIP_URL  = 'https://payhip.com/b/DzR2a';
+const PAYHIP_URL  = 'https://book.bookdecoded.com';
 const SITE_URL    = 'https://hiddenlawsofmoney.com';
 const CART_CLOSE  = 'Sunday June 22 at midnight';
 const CLOSE_DATE  = new Date('2026-06-23T05:00:00Z'); // midnight PT = 07:00 UTC, using 05:00 UTC as safe buffer
