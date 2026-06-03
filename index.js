@@ -1,7 +1,8 @@
 require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
+const express  = require('express');
+const cors     = require('cors');
 const { Resend } = require('resend');
+const { addSubscriber, runScheduler } = require('./scheduler');
 
 const app    = express();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -17,10 +18,12 @@ app.use(cors({
   allowedHeaders: ['Content-Type'],
 }));
 
+// ─── Health check ──────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'hiddenlaws-backend' });
 });
 
+// ─── /subscribe ────────────────────────────────────────
 app.post('/subscribe', async (req, res) => {
   const { name, email } = req.body;
 
@@ -31,6 +34,7 @@ app.post('/subscribe', async (req, res) => {
   const firstName = name ? name.trim().split(' ')[0] : 'Friend';
 
   try {
+    // Add to Resend audience
     await resend.contacts.create({
       audienceId:   process.env.RESEND_AUDIENCE_ID,
       email:        email.toLowerCase().trim(),
@@ -38,6 +42,10 @@ app.post('/subscribe', async (req, res) => {
       unsubscribed: false,
     });
 
+    // Track in local scheduler DB
+    addSubscriber(email.toLowerCase().trim(), firstName);
+
+    // Send PLC1 immediately
     await resend.emails.send({
       from:    process.env.FROM_EMAIL,
       to:      email.toLowerCase().trim(),
@@ -46,8 +54,9 @@ app.post('/subscribe', async (req, res) => {
       html:    plc1Html(firstName),
     });
 
+    // Telegram alert
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      await sendTelegram(`New subscriber: ${firstName} <${email}>`);
+      await sendTelegram(`📧 New subscriber: ${firstName} <${email}>`);
     }
 
     return res.status(200).json({ success: true });
@@ -61,6 +70,7 @@ app.post('/subscribe', async (req, res) => {
   }
 });
 
+// ─── /contact ──────────────────────────────────────────
 app.post('/contact', async (req, res) => {
   const { name, email, message } = req.body;
 
@@ -86,7 +96,7 @@ app.post('/contact', async (req, res) => {
     });
 
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      await sendTelegram(`Contact form from ${name} <${email}>:\n${message.substring(0, 200)}`);
+      await sendTelegram(`📩 Contact from ${name} <${email}>:\n${message.substring(0, 200)}`);
     }
 
     return res.status(200).json({ success: true });
@@ -97,6 +107,7 @@ app.post('/contact', async (req, res) => {
   }
 });
 
+// ─── Telegram helper ───────────────────────────────────
 async function sendTelegram(text) {
   try {
     const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -110,11 +121,12 @@ async function sendTelegram(text) {
   }
 }
 
+// ─── PLC1 (immediate on opt-in) ───────────────────────
 function plc1Html(firstName) {
   return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Part I</title></head>
+<html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+</head>
 <body style="margin:0;padding:0;background:#0c0b09;font-family:Georgia,serif;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0c0b09;">
 <tr><td align="center" style="padding:40px 16px;">
@@ -156,5 +168,16 @@ function plc1Html(firstName) {
 </body></html>`;
 }
 
+// ─── Cron: run scheduler every hour ───────────────────
+const ONE_HOUR = 60 * 60 * 1000;
+setInterval(() => {
+  console.log('Running scheduler check...');
+  runScheduler(resend).catch(err => console.error('Scheduler error:', err));
+}, ONE_HOUR);
+
+// Run once on startup to catch anything missed
+runScheduler(resend).catch(err => console.error('Scheduler startup error:', err));
+
+// ─── Start server ──────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`hiddenlaws-backend running on port ${PORT}`));
