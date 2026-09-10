@@ -6,10 +6,8 @@ const fs   = require('fs');
 const path = require('path');
 
 const DB_PATH = path.join('/data', 'subscribers.json');
-const PAYHIP_URL  = 'https://book.bookdecoded.com';
+const PAYHIP_URL  = 'https://payhip.com/b/DzR2a';
 const SITE_URL    = 'https://hiddenlawsofmoney.com';
-const CART_CLOSE  = 'Sunday June 22 at midnight';
-const CLOSE_DATE  = new Date('2026-06-23T05:00:00Z'); // midnight PT = 07:00 UTC, using 05:00 UTC as safe buffer
 
 // Days after opt-in to send each email
 const SCHEDULE = {
@@ -21,6 +19,27 @@ const SCHEDULE = {
   urgency:    8.33,  // ~8 hours after story
   close:      9,
 };
+
+// ─── Rolling per-subscriber deadline ──────────────────
+// Each subscriber gets their own "closes" moment (optInAt + SCHEDULE.close
+// days), instead of one fixed calendar date shared by everyone. This is
+// what actually enrolls them in the deadline emails: reaching it isn't a
+// choice made per-email, it's calculated from when THEY opted in.
+function closeDateFor(optInAt) {
+  return new Date(new Date(optInAt).getTime() + SCHEDULE.close * 24 * 60 * 60 * 1000);
+}
+
+function formatCloseDate(closeDate) {
+  return closeDate.toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }) + ' PT';
+}
 
 // ─── DB helpers ───────────────────────────────────────
 function loadDB() {
@@ -67,7 +86,7 @@ async function runScheduler(resend) {
     for (const [key, day] of Object.entries(SCHEDULE)) {
       if (daysSince >= day && !sub.sent.includes(key)) {
         try {
-          await sendScheduledEmail(resend, key, sub.email, sub.firstName);
+          await sendScheduledEmail(resend, key, sub.email, sub.firstName, sub.optInAt);
           markSent(sub.email, key);
           console.log(`Sent ${key} to ${sub.email}`);
         } catch (err) {
@@ -79,15 +98,17 @@ async function runScheduler(resend) {
 }
 
 // ─── Route to correct email ───────────────────────────
-async function sendScheduledEmail(resend, key, email, firstName) {
+async function sendScheduledEmail(resend, key, email, firstName, optInAt) {
+  const cartCloseText = formatCloseDate(closeDateFor(optInAt));
+
   const emails = {
     plc2:      { subject: 'Part II — The Rule That Has Been Setting Your Ceiling',        html: plc2Html(firstName) },
     plc3:      { subject: 'Part III — Ten Rules. The Game Was Always Played by Them.',   html: plc3Html(firstName) },
-    cartOpen:  { subject: 'The Hidden Laws of Money — it\'s open',                       html: cartOpenHtml(firstName) },
-    objection: { subject: 'Does this work if you already know the basics?',              html: objectionHtml(firstName) },
-    story:     { subject: 'The treadmill that had nothing to do with spending',           html: storyHtml(firstName) },
-    urgency:   { subject: `Closes ${CART_CLOSE} — what disappears after`,               html: urgencyHtml(firstName) },
-    close:     { subject: `Closing tonight — last email`,                                html: closeHtml(firstName) },
+    cartOpen:  { subject: 'The Hidden Laws of Money — it\'s open',                       html: cartOpenHtml(firstName, cartCloseText) },
+    objection: { subject: 'Does this work if you already know the basics?',              html: objectionHtml(firstName, cartCloseText) },
+    story:     { subject: 'The treadmill that had nothing to do with spending',           html: storyHtml(firstName, cartCloseText) },
+    urgency:   { subject: `Closes ${cartCloseText} — what disappears after`,             html: urgencyHtml(firstName, cartCloseText) },
+    close:     { subject: `Closing today — last email`,                                  html: closeHtml(firstName) },
   };
 
   const e = emails[key];
@@ -194,7 +215,7 @@ function plc3Html(firstName) {
 }
 
 // ─── CART OPEN ────────────────────────────────────────
-function cartOpenHtml(firstName) {
+function cartOpenHtml(firstName, cartCloseText) {
   const body = `
     ${p(`Hi ${firstName},`)}
     ${p('All week we talked about why smart, hardworking people stay stuck financially. The invisible ceiling. The velocity problem that took down Mike Tyson. The scarcity tax quietly consuming the cognitive resources needed to escape it.')}
@@ -202,17 +223,17 @@ function cartOpenHtml(firstName) {
     ${p('The Hidden Laws of Money is a ten-law framework for finally seeing the game that has been played around you your entire financial life. Not another budget. Not another formula. The actual rules.')}
     ${p('<strong style="color:#f0e8d8;">Inside you get:</strong> all ten laws mapped with specific frameworks, real stories, and the exact mechanisms through which they have been shaping your financial outcomes without your awareness.')}
     ${p('<strong style="color:#f0e8d8;">Plus when you order today:</strong> The Hidden Laws Companion Workbook &mdash; 36 pages of structured exercises, one for each law, that move you from insight to implementation inside your actual financial life. Valued at $17.')}
-    ${p(`Everything for <strong style="color:#f0e8d8;">$26</strong> through ${CART_CLOSE}.`)}
+    ${p(`Everything for <strong style="color:#f0e8d8;">$26</strong> through ${cartCloseText}.`)}
     ${p(`After that the price moves to $35 and the workbook comes down permanently.`)}
     ${btn('Get The Hidden Laws of Money — $26', PAYHIP_URL)}
-    ${p(`This closes ${CART_CLOSE}. Real deadline.`)}
+    ${p(`This closes ${cartCloseText}. Real deadline.`)}
     ${p('<em style="color:#5a5648;">PS: The workbook alone took longer to build than the book. If something clicked this week, this is the complete system.</em>')}
   `;
   return emailWrap("The Hidden Laws of Money — it's open", body, firstName);
 }
 
 // ─── OBJECTION CRUSHER ────────────────────────────────
-function objectionHtml(firstName) {
+function objectionHtml(firstName, cartCloseText) {
   const body = `
     ${p(`Hi ${firstName},`)}
     ${p('Got a version of this question a few times since this morning so I want to answer it directly.')}
@@ -221,13 +242,13 @@ function objectionHtml(firstName) {
     ${p('The laws in this book do not operate at the level of tactics. They operate at the level of structure. The identity ceiling that pulls your balance back toward familiar territory. The velocity problem that compounds regardless of income level. The scarcity tax that quietly consumes the resources needed to escape it.')}
     ${p('None of those are addressed by knowing how index funds work.')}
     ${btn('Get The Hidden Laws of Money — $26', PAYHIP_URL)}
-    ${p(`Closes ${CART_CLOSE}.`)}
+    ${p(`Closes ${cartCloseText}.`)}
   `;
   return emailWrap('Does this work if you already know the basics?', body, firstName);
 }
 
 // ─── STORY EMAIL ──────────────────────────────────────
-function storyHtml(firstName) {
+function storyHtml(firstName, cartCloseText) {
   const body = `
     ${p(`Hi ${firstName},`)}
     ${p('A reader I will call David earned a significant raise three years in a row. Each time, within about six months, his financial anxiety returned to roughly the same level it had been before the raise arrived.')}
@@ -238,25 +259,25 @@ function storyHtml(firstName) {
     ${p('David read Chapter 2 and recognized the pattern for the first time. Not as a criticism of his choices but as a structural explanation for why effort alone was not producing the compound results he was working toward.')}
     ${p('Seeing it clearly was the first time he had language for something he had felt for years without being able to name.')}
     ${btn('Get The Hidden Laws of Money — $26', PAYHIP_URL)}
-    ${p(`Door is open until ${CART_CLOSE}.`)}
+    ${p(`Door is open until ${cartCloseText}.`)}
   `;
   return emailWrap('The treadmill that had nothing to do with spending', body, firstName);
 }
 
 // ─── URGENCY ──────────────────────────────────────────
-function urgencyHtml(firstName) {
+function urgencyHtml(firstName, cartCloseText) {
   const body = `
     ${p(`Hi ${firstName},`)}
     ${p('Brief and direct.')}
-    ${p(`The Hidden Laws of Money closes ${CART_CLOSE}. After that the price moves to $35 and the companion workbook comes down permanently.`)}
+    ${p(`The Hidden Laws of Money closes ${cartCloseText}. After that the price moves to $35 and the companion workbook comes down permanently.`)}
     ${p('<strong style="color:#f0e8d8;">What you get before the deadline:</strong>')}
     ${p('The complete ten-law framework for seeing the financial rules that have been operating in your life without your awareness. Plus the 36-page companion workbook with reflection questions and 72-hour action steps for every single law.')}
     ${p('All of it for <strong style="color:#f0e8d8;">$26</strong>.')}
     ${p('After the deadline: $35, no workbook, no exceptions.')}
-    ${btn(`Get Everything Before ${CART_CLOSE} — $26`, PAYHIP_URL)}
+    ${btn(`Get Everything Before ${cartCloseText} — $26`, PAYHIP_URL)}
     ${p('The deadline is real. I am not extending it.')}
   `;
-  return emailWrap(`Closes ${CART_CLOSE} — what disappears after`, body, firstName);
+  return emailWrap(`Closes ${cartCloseText} — what disappears after`, body, firstName);
 }
 
 // ─── CLOSE ────────────────────────────────────────────
@@ -265,12 +286,12 @@ function closeHtml(firstName) {
     ${p(`Hi ${firstName},`)}
     ${p('Last one. Not sending another after this.')}
     ${p('If you have been reading since the beginning you already know whether this is for you. You know if the treadmill metaphor landed somewhere real. You know if you recognized yourself in the description of someone who has done most of the right things and still cannot seem to get ahead.')}
-    ${p(`The Hidden Laws of Money &mdash; complete ten-law framework plus the 36-page companion workbook &mdash; closes tonight at midnight. $26 until then. $35 after that with no workbook.`)}
-    ${p('You can keep following the advice that operates above the level where most financial outcomes are actually determined. Or you can spend $26 tonight and finally see the full board.')}
-    ${btn('This Is the Last Chance — Get It Before Midnight', PAYHIP_URL)}
-    ${p('<em style="color:#5a5648;">PS: Thirty-day guarantee fully in place. Read the first three chapters. If the laws do not feel true and specific to your actual financial life, one email gets you a full refund. The only real risk is missing tonight.</em>')}
+    ${p(`The Hidden Laws of Money &mdash; complete ten-law framework plus the 36-page companion workbook &mdash; closes today. $26 while it's open. $35 after that with no workbook.`)}
+    ${p('You can keep following the advice that operates above the level where most financial outcomes are actually determined. Or you can spend $26 today and finally see the full board.')}
+    ${btn('This Is the Last Chance — Get It Before It Closes', PAYHIP_URL)}
+    ${p('<em style="color:#5a5648;">PS: Thirty-day guarantee fully in place. Read the first three chapters. If the laws do not feel true and specific to your actual financial life, one email gets you a full refund. The only real risk is missing today.</em>')}
   `;
-  return emailWrap('Closing tonight — last email', body, firstName);
+  return emailWrap('Closing today — last email', body, firstName);
 }
 
 module.exports = { addSubscriber, runScheduler };
