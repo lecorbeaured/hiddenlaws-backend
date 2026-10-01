@@ -97,6 +97,10 @@ async function sendScheduledEmail(resend, key, email, firstName) {
     replyTo: process.env.REPLY_TO_EMAIL,
     subject: e.subject,
     html:    e.html,
+    tags: [
+      { name: 'funnel', value: 'hidden-laws-launch' },
+      { name: 'step',   value: key },
+    ],
   });
 }
 

@@ -52,6 +52,10 @@ app.post('/subscribe', async (req, res) => {
       replyTo: process.env.REPLY_TO_EMAIL,
       subject: 'Part I — You Were Given a Map to the Wrong City',
       html:    plc1Html(firstName),
+      tags: [
+        { name: 'funnel', value: 'hidden-laws-launch' },
+        { name: 'step',   value: 'plc1' },
+      ],
     });
 
     // Telegram alert
